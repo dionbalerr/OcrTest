@@ -19,11 +19,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavController
 
 @Composable
-fun MainScreen()
+fun PermissionScreen(navController: NavController)
 {
     val context = LocalContext.current
     val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -35,15 +37,21 @@ fun MainScreen()
             result ->
             if (result.resultCode == Activity.RESULT_OK)
             {
-                shouldRequest = false
+//                shouldRequest = false
                 val data = result.data
 
                 val intent = Intent(context, ScreenCaptureService::class.java).apply {
                     putExtra("resultCode", result.resultCode)
                     putExtra("data", result.data)
+//                    action = ScreenCaptureService.ACTION_START
                 }
                 Toast.makeText(context, "OCR is starting", Toast.LENGTH_SHORT).show()
                 ContextCompat.startForegroundService(context, intent)
+
+                navController.navigate("start_ocr")
+                {
+                    popUpTo("permission") { inclusive = true }
+                }
             }
             else
             {
@@ -52,7 +60,8 @@ fun MainScreen()
             }
         }
 
-    val permissionActivityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+    val permissionActivityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission())
+    {
         granted ->
         if (granted)
             screenCaptureServiceLauncher.launch(projectionManager.createScreenCaptureIntent())
