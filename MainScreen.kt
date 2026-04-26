@@ -43,7 +43,7 @@ fun PermissionScreen(navController: NavController)
                 val intent = Intent(context, ScreenCaptureService::class.java).apply {
                     putExtra("resultCode", result.resultCode)
                     putExtra("data", result.data)
-//                    action = ScreenCaptureService.ACTION_START
+                    action = ScreenCaptureService.ACTION_START
                 }
                 Toast.makeText(context, "OCR is starting", Toast.LENGTH_SHORT).show()
                 ContextCompat.startForegroundService(context, intent)

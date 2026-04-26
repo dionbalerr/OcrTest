@@ -33,6 +33,11 @@ fun StartOCR(navController: NavController)
         Button(onClick =
             {
                 Toast.makeText(context, "Start OCR button clicked!", Toast.LENGTH_SHORT).show()
+                val intent = Intent(context, ScreenCaptureService::class.java).apply {
+                    action = ScreenCaptureService.ACTION_RUN_OCR
+                }
+
+                context.startService(intent)
             })
         {
             Text("Start OCR-ing")

@@ -38,7 +38,7 @@ class ScreenCaptureService : Service()
     private lateinit var imageReader: ImageReader
     private lateinit var mediaProjection: MediaProjection
     private lateinit var virtualDisplay: VirtualDisplay
-//    private var shouldRunOCR = false
+    @Volatile private var hasCapturedFrame = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int
     {
@@ -46,29 +46,53 @@ class ScreenCaptureService : Service()
         val resultCode = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: 0
         val data = intent?.getParcelableExtra<Intent>("data")
 
-        if (resultCode == Activity.RESULT_OK && data != null)
+        when(intent?.action)
         {
-            val notification = createNotification()
-            startForeground(1, notification)
+            ACTION_START ->
+            {
+                if (resultCode == Activity.RESULT_OK && data != null)
+                {
+                    val notification = createNotification()
+                    startForeground(1, notification)
 
-            val projectionManager =
-                getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    val projectionManager =
+                        getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
-            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+                    mediaProjection = projectionManager.getMediaProjection(resultCode, data)
 
-            mediaProjection.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    super.onStop()
-                    Log.d("ScreenCaptureService", "MediaProjection stopped")
-                    virtualDisplay.release()
-                    imageReader.close()
+                    mediaProjection.registerCallback(object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            super.onStop()
+                            Log.d("ScreenCaptureService", "MediaProjection stopped")
+                            virtualDisplay.release()
+                            imageReader.close()
+                        }
+                    }, Handler(Looper.getMainLooper()))
+
+                    createImageReader()
+                    captureFrame()
+
+                    return START_NOT_STICKY
                 }
-            }, Handler(Looper.getMainLooper()))
+            }
+            ACTION_RUN_OCR ->
+            {
+                if (!isCaptureSessionReady()) {
+                    Log.w("ScreenCaptureService", "ACTION_RUN_OCR ignored: capture session is not ready")
+                    Toast.makeText(
+                        this,
+                        "Screen capture is not ready. Grant permission again first.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return START_NOT_STICKY
+                }
 
-            createImageReader()
-            captureFrame()
+                captureFrame()
 
-            return START_STICKY
+                return START_NOT_STICKY
+            }
+
+            else -> return START_NOT_STICKY
         }
 
         return START_NOT_STICKY
@@ -124,9 +148,14 @@ class ScreenCaptureService : Service()
 
     private fun captureFrame()
     {
+        hasCapturedFrame = false
         imageReader.setOnImageAvailableListener({ reader ->
+            if (hasCapturedFrame) return@setOnImageAvailableListener
 
-            val image = imageReader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            hasCapturedFrame = true
+            // Stop receiving more frames; this service is one-shot.
+            imageReader.setOnImageAvailableListener(null, null)
 
             val planes = image.planes
             val buffer = planes[0].buffer
@@ -159,9 +188,43 @@ class ScreenCaptureService : Service()
             .addOnSuccessListener {
                 Log.d("OCR captured", it.text)
                 Toast.makeText(this, it.text, Toast.LENGTH_SHORT).show()
+//                shutdownService()
             }
             .addOnFailureListener {
                 Log.e("OCR captured", "Failed", it)
+//                shutdownService()
             }
+    }
+
+    private fun shutdownService()
+    {
+        runCatching {
+            if (::virtualDisplay.isInitialized) virtualDisplay.release()
+        }
+        runCatching {
+            if (::imageReader.isInitialized) imageReader.close()
+        }
+        runCatching {
+            if (::mediaProjection.isInitialized) mediaProjection.stop()
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun isCaptureSessionReady(): Boolean
+    {
+        return ::mediaProjection.isInitialized &&
+                ::virtualDisplay.isInitialized &&
+                ::imageReader.isInitialized
+    }
+    override fun onDestroy()
+    {
+        super.onDestroy()
+        runCatching {
+            if (::virtualDisplay.isInitialized) virtualDisplay.release()
+        }
+        runCatching {
+            if (::imageReader.isInitialized) imageReader.close()
+        }
     }
 }
