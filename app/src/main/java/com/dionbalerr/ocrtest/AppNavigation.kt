@@ -1,18 +1,20 @@
 package com.dionbalerr.ocrtest
 
-import android.R.attr.name
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.dionbalerr.ocrtest.ui.screen.PermissionScreen
+import com.dionbalerr.ocrtest.ui.screen.StartOCRScreen
 
 @Composable
-fun AppNavigation() {
-
+fun AppNavigation()
+{
     val navController = rememberNavController()
 
-    LaunchedEffect(navController) {
+    LaunchedEffect(navController)
+    {
         navController.currentBackStackEntryFlow.collect { backStackEntry ->
             println("Current route: ${backStackEntry.destination.route}")
         }
@@ -35,7 +37,7 @@ fun AppNavigation() {
 
         composable("start_ocr")
         {
-            StartOCR(navController)
+            StartOCRScreen(navController)
         }
     }
 }

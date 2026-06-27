@@ -1,13 +1,11 @@
-package com.dionbalerr.ocrtest
+package com.dionbalerr.ocrtest.ui.screen
 
 import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,10 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
+import com.dionbalerr.ocrtest.ScreenCaptureService
 
 @Composable
 fun PermissionScreen(navController: NavController)
@@ -43,7 +41,7 @@ fun PermissionScreen(navController: NavController)
                 val intent = Intent(context, ScreenCaptureService::class.java).apply {
                     putExtra("resultCode", result.resultCode)
                     putExtra("data", result.data)
-                    action = ScreenCaptureService.ACTION_START
+                        .setAction(ScreenCaptureService.Companion.ACTION_START)
                 }
                 Toast.makeText(context, "OCR is starting", Toast.LENGTH_SHORT).show()
                 ContextCompat.startForegroundService(context, intent)
