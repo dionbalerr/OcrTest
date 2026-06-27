@@ -38,7 +38,9 @@ class ScreenCaptureService : Service()
     private lateinit var imageReader: ImageReader
     private lateinit var mediaProjection: MediaProjection
     private lateinit var virtualDisplay: VirtualDisplay
-    @Volatile private var hasCapturedFrame = false
+    private val frameLock = Any()
+    private var latestFrame: Bitmap? = null
+    private var pendingOcr = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int
     {
@@ -60,7 +62,8 @@ class ScreenCaptureService : Service()
 
                     mediaProjection = projectionManager.getMediaProjection(resultCode, data)
 
-                    mediaProjection.registerCallback(object : MediaProjection.Callback() {
+                    mediaProjection.registerCallback(object : MediaProjection.Callback()
+                    {
                         override fun onStop() {
                             super.onStop()
                             Log.d("ScreenCaptureService", "MediaProjection stopped")
@@ -70,14 +73,16 @@ class ScreenCaptureService : Service()
                     }, Handler(Looper.getMainLooper()))
 
                     createImageReader()
-                    captureFrame()
+                    startFrameCapture()
+                    requestOCR()
 
                     return START_NOT_STICKY
                 }
             }
             ACTION_RUN_OCR ->
             {
-                if (!isCaptureSessionReady()) {
+                if (!isCaptureSessionReady())
+                {
                     Log.w("ScreenCaptureService", "ACTION_RUN_OCR ignored: capture session is not ready")
                     Toast.makeText(
                         this,
@@ -87,7 +92,7 @@ class ScreenCaptureService : Service()
                     return START_NOT_STICKY
                 }
 
-                captureFrame()
+                requestOCR()
 
                 return START_NOT_STICKY
             }
@@ -103,16 +108,15 @@ class ScreenCaptureService : Service()
     private fun createNotification(): Notification
     {
         val channelId = "screen_capture_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-        {
-            val chan = NotificationChannel(
-                channelId,
-                "Screen Capture",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(chan)
-        }
+        val chan = NotificationChannel(
+            channelId,
+            "Screen Capture",
+            NotificationManager.IMPORTANCE_LOW
+        )
+
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(chan)
+
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("Screen Capture Running")
             .setContentText("Your screen is being captured")
@@ -146,34 +150,63 @@ class ScreenCaptureService : Service()
         )
     }
 
-    private fun captureFrame()
+    private fun startFrameCapture()
     {
-        hasCapturedFrame = false
         imageReader.setOnImageAvailableListener({ reader ->
-            if (hasCapturedFrame) return@setOnImageAvailableListener
-
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-            hasCapturedFrame = true
-            // Stop receiving more frames; this service is one-shot.
-            imageReader.setOnImageAvailableListener(null, null)
+            val bitmap = try
+            {
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val width = image.width
+                val height = image.height
 
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val width = image.width
-            val height = image.height
+                val rowPadding = rowStride - pixelStride * width
 
-            val rowPadding = rowStride - pixelStride * width
+                createBitmap(width + rowPadding / pixelStride, height).also {
+                    it.copyPixelsFromBuffer(buffer)
+                }
+            }
+            finally
+            {
+                image.close()
+            }
 
-            val bitmap = createBitmap(width + rowPadding / pixelStride, height)
+            val shouldRunOcr = synchronized(frameLock)
+            {
+                latestFrame = bitmap
+                if (pendingOcr) {
+                    pendingOcr = false
+                    true
+                } else {
+                    false
+                }
+            }
 
-            bitmap.copyPixelsFromBuffer(buffer)
-
-            image.close()
-
-            runOCR(bitmap)
+            if (shouldRunOcr) runOCR(bitmap)
         }, Handler(Looper.getMainLooper()))
+    }
+
+    private fun requestOCR()
+    {
+        val bitmap = synchronized(frameLock)
+        {
+            latestFrame?.also { pendingOcr = false } ?: run {
+                pendingOcr = true
+                null
+            }
+        }
+
+        if (bitmap != null)
+        {
+            runOCR(bitmap)
+        }
+        else
+        {
+            Toast.makeText(this, "Waiting for screen frame...", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun runOCR(bitmap: Bitmap)
@@ -217,6 +250,7 @@ class ScreenCaptureService : Service()
                 ::virtualDisplay.isInitialized &&
                 ::imageReader.isInitialized
     }
+
     override fun onDestroy()
     {
         super.onDestroy()
